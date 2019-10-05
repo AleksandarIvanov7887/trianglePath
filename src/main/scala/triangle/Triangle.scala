@@ -1,38 +1,53 @@
 package triangle
 
+import cats.{Monoid, Order}
+import cats.implicits._
+import codec.Codec
+
+import scala.reflect.ClassTag
 import scala.io.Source
 
 object Triangle {
-  type TriangleArray = Array[Array[Int]]
-  case class Result(value: Int = 0, path: List[Int] = List.empty[Int])
+  type TriangleArray[A] = Array[Array[A]]
+
+  case class Result[A](value: A, path: List[A] = List.empty[A])
   object Result {
-    def min(a: Result, b: Result): Result = if (a.value < b.value) a else b
+    def min[A](a: Result[A], b: Result[A])(implicit order: Order[A]): Result[A] =
+      if (a.value < b.value) a else b
+
+    def toString[A](a: Result[A])(implicit codec: Codec[A]): String = {
+      val stringPath = a.path.map(codec.encode).reduce((a, b) => s"$a + $b")
+      stringPath + s" = ${codec.encode(a.value)}"
+    }
   }
 
-  def parseLines(input: String): TriangleArray = input.trim.split("\n").map(parseRow)
-  private def parseRow(input: String): Array[Int] = input.trim.split("\\s+").map(_.toInt)
+  def parseLines[A: ClassTag](input: String)(implicit codec: Codec[A]): TriangleArray[A] =
+    input.trim.split("\n").map(parseRow(_))
 
-  def parseFile(fileName: String): (Source, TriangleArray) = {
+  private def parseRow[A: ClassTag](input: String)(implicit codec: Codec[A]): Array[A] =
+    input.trim.split("\\s+").map(codec.decode)
+
+  def parseFile[A: ClassTag](fileName: String)(implicit codec: Codec[A]): (Source, TriangleArray[A]) = {
     val source = Source.fromFile(fileName)
-    val result = source.getLines.map(parseRow).toArray
+    val result = source.getLines.map(a => parseRow(a)).toArray
     (source, result)
   }
 
-  def minimalSum(triangleArray: TriangleArray): Result = {
-    val accumulator = Array.fill[Result](triangleArray.last.length + 1)(Result())
+  def minimalSum[A](triangleArray: TriangleArray[A])(implicit monoid: Monoid[A], order: Order[A]): Result[A] = {
+    val accumulator = Array.fill[Result[A]](triangleArray.last.length + 1)(Result(monoid.empty))
     triangleArray.foldRight(accumulator) { (rowAbove, accumulated) =>
       rowAbove
         .zip(accumulated.zip(accumulated.tail))
         .map { case (parent, (leftChild, rightChild)) =>
           val childToChoose = Result.min(leftChild, rightChild)
-          Result(parent + childToChoose.value, parent :: childToChoose.path)
+          Result(monoid.combine(parent, childToChoose.value), parent :: childToChoose.path)
         }
     }.head
   }
 
-  def printTriangleArray(data: TriangleArray): Unit =
+  def printTriangleArray[A](data: TriangleArray[A])(implicit codec: Codec[A]): Unit =
     data.foreach(row => {
-      row.foreach(item => print(item.toString + " "))
+      row.foreach(item => print(codec.encode(item) + " "))
       println
     })
 }
